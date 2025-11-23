@@ -33,7 +33,7 @@ for chunk in generate.stream({"messages": [request]}):
     essay += chunk.content
     
 print()
-print("===加入老师评价===")
+print("===生成老师评价===")
 
 reflection_prompt = ChatPromptTemplate.from_messages(
     [
