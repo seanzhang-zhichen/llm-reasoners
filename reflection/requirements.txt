@@ -1,0 +1,8 @@
+ipython==8.12.3
+langchain_community==0.4.1
+langchain_core==1.1.0
+langchain_fireworks==1.0.0
+langgraph==1.0.3
+pydantic==2.12.4
+python-dotenv==1.2.1
+typing_extensions==4.15.0
