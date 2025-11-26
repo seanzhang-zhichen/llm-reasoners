@@ -1,28 +1,39 @@
-import dotenv
-from typing import List
-import re
+"""ReWOO planning graph entrypoint."""
 
+from __future__ import annotations
+
+import logging
+import re
+from typing import Dict, List, Tuple
+
+import dotenv
+from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_fireworks import ChatFireworks
 from typing_extensions import TypedDict
 
-from langchain_community.tools.tavily_search import TavilySearchResults
-
 dotenv.load_dotenv(override=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
-search = TavilySearchResults()
+PlanStep = Tuple[str, str, str, str]
+ResultMap = Dict[str, str]
 
 
 class ReWOO(TypedDict):
+    """State shared across planner, tool executor, and solver."""
+
     task: str
     plan_string: str
-    steps: List
-    results: dict
+    steps: List[PlanStep]
+    results: ResultMap
     result: str
 
 
-
-from langchain_fireworks import ChatFireworks
-
+search = TavilySearchResults()
 model = ChatFireworks(
     model="accounts/fireworks/models/deepseek-v3p1-terminus",
     max_tokens=25_344,
@@ -47,28 +58,34 @@ Plan: 计算 Rebecca 工作的小时数。#E3 = Calculator[(2 ∗ #E2 − 10) �
 请详细描述每个计划。每个 Plan 后只能跟一个 #E。
 
 Task: {task}"""
-task = "2024中国首富的家乡是哪里？"
-# result = model.invoke(prompt.format(task=task))
-
-# print(result.content)
-
-
-# Regex to match expressions of the form E#... = ...[...]
-regex_pattern = r"Plan:\s*(.+)\s*(#E\d+)\s*=\s*(\w+)\s*\[([^\]]+)\]"
+regex_pattern = re.compile(r"Plan:\s*(.+?)\s*(#E\d+)\s*=\s*(\w+)\s*\[([^\]]+)\]")
 prompt_template = ChatPromptTemplate.from_messages([("user", prompt)])
 planner = prompt_template | model
 
 
+def _parse_plan(content: str) -> List[PlanStep]:
+    """Parse planner output into structured steps."""
+    matches: List[PlanStep] = regex_pattern.findall(content)
+    if not matches:
+        raise ValueError("Planner response missing structured steps.")
+    return matches
+
+
+def _substitute_results(value: str, results: ResultMap) -> str:
+    """Replace step placeholders (#E...) with actual tool outputs."""
+    for placeholder, tool_output in results.items():
+        value = value.replace(placeholder, tool_output)
+    return value
+
+
 def get_plan(state: ReWOO):
-    task = state["task"]
-    result = planner.invoke({"task": task})
-    # Find all matches in the sample text
-    matches = re.findall(regex_pattern, result.content)
-    print("planner.content:")
-    print(result.content)
-    print("matches:")
-    print(matches)
-    return {"steps": matches, "plan_string": result.content}
+    """Planner node: produce outline and extracted steps."""
+    logger.info("Planning for task: %s", state["task"])
+    result = planner.invoke({"task": state["task"]})
+    steps = _parse_plan(result.content)
+    logger.debug("Planner raw response: %s", result.content)
+    logger.info("Planner extracted %d steps.", len(steps))
+    return {"steps": steps, "plan_string": result.content}
 
 
 def _get_current_task(state: ReWOO):
@@ -80,19 +97,24 @@ def _get_current_task(state: ReWOO):
         return len(state["results"]) + 1
 
 
+def _execute_tool(tool: str, tool_input: str):
+    if tool == "Google":
+        return search.invoke(tool_input)
+    if tool == "LLM":
+        return model.invoke(tool_input)
+    raise ValueError(f"Unsupported tool: {tool}")
+
+
 def tool_execution(state: ReWOO):
     """Worker node that executes the tools of a given plan."""
     _step = _get_current_task(state)
+    logger.info("Executing step %s/%s", _step, len(state["steps"]))
     _, step_name, tool, tool_input = state["steps"][_step - 1]
-    _results = (state["results"] or {}) if "results" in state else {}
-    for k, v in _results.items():
-        tool_input = tool_input.replace(k, v)
-    if tool == "Google":
-        result = search.invoke(tool_input)
-    elif tool == "LLM":
-        result = model.invoke(tool_input)
-    else:
-        raise ValueError
+    _results = (state.get("results") or {}).copy()
+    resolved_input = _substitute_results(tool_input, _results)
+    logger.info("Tool %s called with input: %s", tool, resolved_input)
+    result = _execute_tool(tool, resolved_input)
+    logger.info("Tool %s finished. Result type: %s", tool, type(result))
     _results[step_name] = str(result)
     return {"results": _results}
 
@@ -108,16 +130,26 @@ Task: {task}
 Response:"""
 
 
+def _format_plan_for_solver(state: ReWOO) -> str:
+    """Builds the evidence string expected by the solver prompt."""
+    formatted_parts: List[str] = []
+    results = state.get("results") or {}
+    for plan_text, step_name, tool, tool_input in state["steps"]:
+        formatted_step = (
+            f"Plan: {plan_text}\n"
+            f"{_substitute_results(step_name, results)} = "
+            f"{tool}[{_substitute_results(tool_input, results)}]"
+        )
+        formatted_parts.append(formatted_step)
+    return "\n".join(formatted_parts)
+
+
 def solve(state: ReWOO):
-    plan = ""
-    for _plan, step_name, tool, tool_input in state["steps"]:
-        _results = (state["results"] or {}) if "results" in state else {}
-        for k, v in _results.items():
-            tool_input = tool_input.replace(k, v)
-            step_name = step_name.replace(k, v)
-        plan += f"Plan: {_plan}\n{step_name} = {tool}[{tool_input}]"
+    logger.info("Solving final response for task: %s", state["task"])
+    plan = _format_plan_for_solver(state)
     prompt = solve_prompt.format(plan=plan, task=state["task"])
     result = model.invoke(prompt)
+    logger.info("Solver produced response.")
     return {"result": result.content}
 
 
@@ -125,9 +157,11 @@ def _route(state):
     _step = _get_current_task(state)
     if _step is None:
         # We have executed all tasks
+        logger.info("All steps complete. Routing to solve node.")
         return "solve"
     else:
         # We are still executing tasks, loop back to the "tool" node
+        logger.info("Routing back to tool node for step %s.", _step)
         return "tool"
 
 from langgraph.graph import END, StateGraph, START
@@ -144,6 +178,14 @@ graph.add_edge(START, "plan")
 app = graph.compile()
 
 
-for s in app.stream({"task": task}):
-    print(s)
-    print("==="*10)
+def run(task: str):
+    """Utility runner for manual debugging."""
+    logger.info("Starting run for task: %s", task)
+    for chunk in app.stream({"task": task}):
+        print(chunk)
+        print("===" * 10)
+    logger.info("Run complete for task: %s", task)
+
+
+if __name__ == "__main__":
+    run("2024中国首富的家乡是哪里？")
