@@ -232,4 +232,7 @@ def main(question: str | None = None, recursion_limit: int | None = None):
 
 
 if __name__ == "__main__":
-    main("2024年的中国首富的家乡是哪里？")
+    question = "2024年的中国首富的家乡是哪里？"
+    print("开始执行")
+    print("问题：", question)
+    main(question)
