@@ -482,38 +482,38 @@ if __name__ == "__main__":
     print("\n" + "=" * 80)
     print("执行示例1: 查询纽约的GDP")
     print("=" * 80)
-    # example1_question = "What's the GDP of New York?"
-    # print(f"问题: {example1_question}\n")
+    example1_question = "What's the GDP of New York?"
+    print(f"问题: {example1_question}\n")
 
-    # step_count = 0
-    # for step in chain.stream(
-    #     {"messages": [HumanMessage(content=example1_question)]}
-    # ):
-    #     step_count += 1
-    #     print(f"\n{'='*80}")
-    #     print(f"步骤 {step_count}")
-    #     print(f"{'='*80}")
+    step_count = 0
+    for step in chain.stream(
+        {"messages": [HumanMessage(content=example1_question)]}
+    ):
+        step_count += 1
+        print(f"\n{'='*80}")
+        print(f"步骤 {step_count}")
+        print(f"{'='*80}")
 
-    #     for node_name, node_output in step.items():
-    #         print(f"\n节点: {node_name}")
-    #         if isinstance(node_output, dict) and "messages" in node_output:
-    #             messages = node_output["messages"]
-    #             print(f"  消息数量: {len(messages)}")
-    #             for i, msg in enumerate(messages[-3:], 1):
-    #                 msg_type = type(msg).__name__
-    #                 content_preview = (
-    #                     str(msg.content)[:150] + "..."
-    #                     if len(str(msg.content)) > 150
-    #                     else str(msg.content)
-    #                 )
-    #                 print(f"    {i}. [{msg_type}] {content_preview}")
-    #         else:
-    #             print(f"  输出: {node_output}")
-    #     print("\n" + "-" * 80)
+        for node_name, node_output in step.items():
+            print(f"\n节点: {node_name}")
+            if isinstance(node_output, dict) and "messages" in node_output:
+                messages = node_output["messages"]
+                print(f"  消息数量: {len(messages)}")
+                for i, msg in enumerate(messages[-3:], 1):
+                    msg_type = type(msg).__name__
+                    content_preview = (
+                        str(msg.content)[:150] + "..."
+                        if len(str(msg.content)) > 150
+                        else str(msg.content)
+                    )
+                    print(f"    {i}. [{msg_type}] {content_preview}")
+            else:
+                print(f"  输出: {node_output}")
+        print("\n" + "-" * 80)
 
-    # print(f"\n{'='*80}")
-    # print(f"示例1执行完成，共执行了 {step_count} 个步骤")
-    # print(f"{'='*80}")
+    print(f"\n{'='*80}")
+    print(f"示例1执行完成，共执行了 {step_count} 个步骤")
+    print(f"{'='*80}")
 
     print("\n\n" + "=" * 80)
     print("执行示例2: 复杂数学计算")
